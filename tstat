@@ -19,7 +19,8 @@ from __future__ import generators
 
 try:
     import sys, os, time, sched, re, getopt, fnmatch
-    import types, subprocess, getpass, glob, linecache
+    import types, getpass, glob, linecache
+    import subprocess, json
 except KeyboardInterrupt:
     pass
 
@@ -228,11 +229,12 @@ class Options:
             print 'dstat: option --float and --integer are mutual exlusive, you can only force one'
             sys.exit(1)
 
-        if not self.plugins:
-            print 'You did not select any stats, using -cdngy by default.'
+        if not self.plugins:            
             if win:
+                print 'You did not select any stats, using -counter by default.'
                 self.plugins = ['counter']
             else:    
+                print 'You did not select any stats, using -cdngy by default.'
                 self.plugins = [ 'cpu', 'disk', 'net', 'page', 'sys' ]
 
         try:
@@ -560,6 +562,8 @@ class dstat:
                         line = line + ','
             elif isinstance(self.val[name], types.StringType):
                 line = line + self.val[name]
+            elif isinstance(self.val[name], types.DictType):
+                line = line + json.dumps(self.val[name])                
             else:
                 line = line + printcsv(self.val[name])
             if i + 1 != len(self.vars):
@@ -2031,6 +2035,8 @@ def cprint(var, type = 'f', width = 4, scale = 1000):
         ret, c = str(var), ctext
     elif type in ('t'):
         ret, c = tchg(var, width), ctext
+    elif type in ('j'):    
+        ret, c = json.dumps(var), ctext
     else:
         raise Exception, 'Type %s not known to dstat.' % type
 
@@ -2388,6 +2394,8 @@ def main():
         hz = os.sysconf('SC_CLK_TCK')
         pagesize = resource.getpagesize()
         hostname = os.uname()[1]
+    else:
+        hostname = "localhost"
 
     maxint = (sys.maxint + 1) * 2
     ownpid = str(os.getpid())    
@@ -2428,8 +2436,8 @@ def main():
             outputfile.write('\n\n')
         else:
             outputfile = open(op.output, 'w', 0)
-            outputfile.write('"Dstat %s CSV output"\n' % VERSION)
-            outputfile.write('"Author:","Dag Wieers <dag@wieers.com>",,,,"URL:","http://dag.wieers.com/home-made/dstat/"\n')
+            outputfile.write('"Tstat %s CSV output"\n' % VERSION)
+            #outputfile.write('"Author:","Dag Wieers <dag@wieers.com>",,,,"URL:","http://dag.wieers.com/home-made/dstat/"\n')
 
         outputfile.write('"Host:","%s",,,,"User:","%s"\n' % (hostname, user))
         outputfile.write('"Cmdline:","dstat %s",,,,"Date:","%s"\n\n' % (' '.join(op.args), time.strftime('%d %b %Y %H:%M:%S %Z', time.localtime())))
@@ -2653,7 +2661,9 @@ def perform(update):
         if op.debug:
             totaltime = totaltime + (time.time() - starttime) * 1000.0
             if loop == 0:
-                totaltime = totaltime * step
+                totaltime = totaltime * stepn
+
+
             if op.debug == 1:
                 sys.stdout.write('%s%6.2fms%s' % (theme['roundtrip'], totaltime / step, theme['input']))
             elif op.debug == 2:
@@ -2663,7 +2673,9 @@ def perform(update):
 
         if missed > 0:
 #            sys.stdout.write(' '+theme['error']+'= warn =')
-            sys.stdout.write(' ' + theme['error'] + 'missed ' + str(missed+1) + ' ticks' + theme['input'])
+            if not win:
+                sys.stdout.write(' ' + theme['error'] + 'missed ' + str(missed+1) + ' ticks' + theme['input'])
+
             missed = 0
 
         ### Finish the line
