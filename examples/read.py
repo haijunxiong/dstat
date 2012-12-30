@@ -3,8 +3,8 @@
 ### Example 1: Direct accessing stats
 ### This is a quick example showing how you can access dstat data
 ### If you're interested in this functionality, contact me at dag@wieers.com
-import sys
-sys.path.insert(0, '/usr/share/dstat/')
+#import sys
+#sys.path.insert(0, '/usr/share/dstat/')
 import dstat
 
 ### Set default theme
@@ -14,6 +14,8 @@ clear = dstat.ansi['reset']
 dstat.tick = dstat.ticks()
 
 c = dstat.dstat_cpu()
+c.check()
+c.prepare()
 print c.title() + '\n' + c.subtitle()
 c.extract()
 print c.show(), clear
