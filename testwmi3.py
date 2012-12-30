@@ -4,6 +4,43 @@ Created on 2012-12-25
 @author: Administrator
 '''
 import wmi,subprocess,re,json
+
+def getWebServerInfoFromIIS7():
+
+    webserver = {}
+    sites=[]
+
+    c = wmi.WMI(namespace="WebAdministration")
+    for site in c.site():
+
+        tsite = {}
+        ip = set()
+        domain = set()
+
+        tsite["index"] = site.Id
+        tsite["name"] = site.Name
+
+        
+        for bind in site.bindings:
+            if bind.protocol == "http" or bind.protocol == "https":
+                bindinfo = bind.bindingInformation.split(":")
+                if bindinfo[2] == "":
+                    bindinfo[2] = "*"
+
+                domain.add(bindinfo[2])
+                ip.add(bindinfo[0] +':'+ bindinfo[1] )
+
+
+        tsite["ip"] = list(ip)
+        tsite["domain"] = list(domain)
+        sites.append(tsite) 
+            
+
+    webserver["type"] = "iis"
+    webserver["version"] = 7
+    webserver["sites"] = sites
+    return webserver
+
 w = wmi.WMI()
 
 info={}
@@ -59,7 +96,6 @@ for d in disks:
     partition["filesystem"] = d.filesystem
     partition["size"] = float(d.size)/(1024*1024)
     partitions.append(partition)
-    #print d.caption,d.filesystem,float(d.size)/(1024*1024)
 
 os["partition"] = partitions
 
@@ -77,26 +113,18 @@ network["port"] = ports
 os["network"] =  network
 
 softs = []
-'''
+
 products = w.Win32_Product()
 for p in sorted(products,key = lambda d : d.caption):
-    print p.caption
-    softs.append(str(p.caption))
-'''    
+    softs.append(p.caption)
+    
 os["soft"] = softs
 
-webserver = {}
-
-webserver["type"] = "iis"
-webserver["version"] = 7
-
-sites = []
-
-webserver["sites"] = sites
+webserver = getWebServerInfoFromIIS7()
 
 os["webserver"] = webserver
 software["os"] = os
-print json.dumps(info,encoding="gbk")
+print json.dumps(info)
 
 
 exit(0)

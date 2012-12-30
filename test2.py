@@ -1,7 +1,6 @@
 
 import wmi,re
-from _winreg import (HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, 
-                     OpenKey, EnumValue, QueryValueEx)
+from _winreg import (HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS,OpenKey, EnumValue, QueryValueEx)
  
 def getInstalledSoftwareFromReg():
     softs = set()
@@ -9,7 +8,8 @@ def getInstalledSoftwareFromReg():
     r = wmi.Registry ()
     
     keyPath = r"Software\Microsoft\Windows\CurrentVersion\Uninstall"
-    result, names = r.EnumKey (hDefKey=HKEY_LOCAL_MACHINE, sSubKeyName=keyPath)    
+    result, names = r.EnumKey (hDefKey=HKEY_LOCAL_MACHINE, sSubKeyName=keyPath)   
+    return 
     reg = re.compile('^hotfix|kb(\d+)|service pack',re.I)
     for subkey in names:
         try:
