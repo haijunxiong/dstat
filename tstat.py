@@ -2725,6 +2725,7 @@ def main():
 
     ### Let the games begin
     while update <= op.delay * op.count or op.count == -1:
+        print 'inittime,update,interval',inittime,update,interval
         scheduler.enterabs(inittime + update, 1, perform, (update,))
 #        scheduler.enter(1, 1, perform, (update,))
         scheduler.run()
