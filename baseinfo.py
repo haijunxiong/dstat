@@ -3,7 +3,7 @@ Created on 2012-12-25
 
 @author: mengjia
 '''
-import wmi,subprocess,re,json,_winreg
+import wmi,subprocess,re,json,_winreg,uuid
 
 w = wmi.WMI()
 
@@ -247,6 +247,7 @@ def getBaseInfo():
     software = {}
     software["os"] = getOs()
 
+    info["machineid"] = str(uuid.getnode())
     info["hardware"] = hardware
     info["software"] = software
     return info
