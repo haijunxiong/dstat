@@ -189,11 +189,12 @@ class dstat_counter(dstat):
         info["process"] = process
 
         self.val["info"] = info
+        return self.val
 #end dstat_wincounter
 
 
 
 if __name__ == '__main__':
     counter = dstat_counter()
-    counter.extract()
-    print json.dumps(counter.val)
+    r = counter.extract()
+    print json.dumps(r)

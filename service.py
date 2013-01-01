@@ -9,22 +9,26 @@
 import win32service
 import win32serviceutil
 import win32event
-import win32evtlogutil
-import win32traceutil
+#import win32evtlogutil
+#import win32traceutil
 import servicemanager
 import winerror
 import time
 import sys
+import os
+import statservice
 
 class aservice(win32serviceutil.ServiceFramework):
-    _svc_name_ = "aservice"
-    _svc_display_name_ = "aservice - It Does nothing"
+    _svc_name_ = "TmallStatService"
+    _svc_display_name_ = "Tmall Stat Service"
     _svc_deps_ = ["EventLog"]
 
     def __init__(self,args):
         win32serviceutil.ServiceFramework.__init__(self,args)
         self.hWaitStop=win32event.CreateEvent(None, 0, 0, None)
         self.isAlive=True
+        self.statservice = statservice.statservice()          
+
 
     def SvcStop(self):
 
@@ -44,8 +48,7 @@ class aservice(win32serviceutil.ServiceFramework):
         import servicemanager
         # Write a 'started' event to the event log... (not required)
         #
-        win32evtlogutil.ReportEvent(self._svc_name_,servicemanager.PYS_SERVICE_STARTED,0,
-        servicemanager.EVENTLOG_INFORMATION_TYPE,(self._svc_name_, ''))
+        #win32evtlogutil.ReportEvent(self._svc_name_,servicemanager.PYS_SERVICE_STARTED,0,servicemanager.EVENTLOG_INFORMATION_TYPE,(self._svc_name_, ''))
 
         # methode 1: wait for beeing stopped ...
         # win32event.WaitForSingleObject(self.hWaitStop,win32event.INFINITE)
@@ -58,12 +61,11 @@ class aservice(win32serviceutil.ServiceFramework):
             # wait for service stop signal, if timeout, loop again
             rc=win32event.WaitForSingleObject(self.hWaitStop, self.timeout)
 
-            print "looping"
+            self.statservice.perform()
 
         # and write a 'stopped' event to the event log (not required)
         #
-        win32evtlogutil.ReportEvent(self._svc_name_,servicemanager.PYS_SERVICE_STOPPED,0,
-        servicemanager.EVENTLOG_INFORMATION_TYPE,(self._svc_name_, ''))
+        #win32evtlogutil.ReportEvent(self._svc_name_,servicemanager.PYS_SERVICE_STOPPED,0,servicemanager.EVENTLOG_INFORMATION_TYPE,(self._svc_name_, ''))
 
         self.ReportServiceStatus(win32service.SERVICE_STOPPED)
 
@@ -72,12 +74,12 @@ class aservice(win32serviceutil.ServiceFramework):
 if __name__ == '__main__':
 
     # if called without argvs, let's run !
-
+    print os.getcwd()
     if len(sys.argv) == 1:
         try:
             evtsrc_dll = os.path.abspath(servicemanager.__file__)
             servicemanager.PrepareToHostSingle(aservice)
-            servicemanager.Initialize('aservice', evtsrc_dll)
+            servicemanager.Initialize('TmallStatService', evtsrc_dll)
             servicemanager.StartServiceCtrlDispatcher()
         except win32service.error, details:
             if details[0] == winerror.ERROR_FAILED_SERVICE_CONTROLLER_CONNECT:
