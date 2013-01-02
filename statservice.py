@@ -1,5 +1,7 @@
 import sched,time,os,json,codecs
+import pythoncom
 import baseinfo,runninginfo_windows
+
 
 class statservice():
     def __init__(self):
@@ -19,39 +21,43 @@ class statservice():
             self.update += self.interval                        
         
     def perform(self):
-        print "perform",self.update
+        #print "perform",self.update
+        try:
+            pythoncom.CoInitialize()
 
-        datadir = os.path.join(os.getcwd(),'data')
-        if not os.path.exists(datadir):
-            os.makedirs(datadir)
+            datadir = os.path.join(os.getcwd(),'tstatdata')
+            if not os.path.exists(datadir):
+                os.makedirs(datadir)
 
-        print datadir
+            #print datadir
 
-        baseinfofile = os.path.join(os.getcwd(),'data','baseinfo.json')
-        if not os.path.exists(baseinfofile):
-            info = baseinfo.BaseInfo()
-            baseinfos = json.dumps(info.getBaseInfo())
+            baseinfofile = os.path.join(os.getcwd(),'tstatdata','baseinfo.json')
+            if not os.path.exists(baseinfofile):
+                info = baseinfo.BaseInfo()
+                baseinfos = json.dumps(info.getBaseInfo())
+
+                try:
+                    f = codecs.open(baseinfofile, encoding='utf-8', mode='w')
+                    f.write(baseinfos)
+                finally:                
+                    f.close()
+
+            filename = time.strftime("%Y%m%d%H.json", time.localtime())
+            runninginfofile = os.path.join(os.getcwd(),'tstatdata',filename)
+
+            counter = runninginfo_windows.dstat_counter()
+            r = counter.extract()
+            runninginfos = json.dumps(r)
 
             try:
-                f = codecs.open(baseinfofile, encoding='utf-8', mode='w')
-                f.write(baseinfos)
-            finally:                
+                f = codecs.open(runninginfofile, encoding='utf-8', mode='a')
+                f.write(runninginfos)
+                f.write('\r\n')
+            finally:
                 f.close()
-
-        filename = time.strftime("%Y%m%d%H.json", time.localtime())
-        runninginfofile = os.path.join(os.getcwd(),'data',filename)
-
-        counter = runninginfo_windows.dstat_counter()
-        r = counter.extract()
-        runninginfos = json.dumps(r)
-
-        try:
-            f = codecs.open(runninginfofile, encoding='utf-8', mode='a')
-            f.write(runninginfos)
-            f.write('\r\n')
         finally:
-            f.close()
-
+            pythoncom.CoUninitialize()
+                    
 if __name__ == '__main__':
     service = statservice()
     service.perform()

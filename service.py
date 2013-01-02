@@ -54,7 +54,7 @@ class aservice(win32serviceutil.ServiceFramework):
         # win32event.WaitForSingleObject(self.hWaitStop,win32event.INFINITE)
 
         # methode 2: wait for beeing stopped ...
-        self.timeout=1000  # In milliseconds (update every second)
+        self.timeout=1000 * 60 * 5 # In milliseconds (update every second)
 
         while self.isAlive:
 

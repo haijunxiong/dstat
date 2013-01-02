@@ -1,4 +1,5 @@
 import re,wmi,subprocess,uuid,time,json
+#import pythoncom
 
 class dstat:
     def __init__(self):
@@ -49,6 +50,9 @@ class dstat_counter(dstat):
 
 
     def extract(self):
+
+        #pythoncom.CoInitialize()
+
         info = {}
 
         regexp = re.compile(r"\"(\d+\.\d+)\"")
@@ -81,7 +85,7 @@ class dstat_counter(dstat):
                                      #'Active Server Pages\Requests Queued',
                                      #'ASP.NET\Requests Queued',
                                      '\Network Interface(*)\Bytes Total/sec'                                     
-                                     ],shell=True)
+                                     ],stdin=subprocess.PIPE,stderr=subprocess.PIPE,shell=True)
         result = regexp.findall(r)    
 
         i=0
@@ -189,6 +193,7 @@ class dstat_counter(dstat):
         info["process"] = process
 
         self.val["info"] = info
+        #pythoncom.CoUninitialize()
         return self.val
 #end dstat_wincounter
 

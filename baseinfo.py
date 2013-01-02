@@ -4,11 +4,11 @@ Created on 2012-12-25
 @author: mengjia
 '''
 import wmi,subprocess,re,json,_winreg,uuid
+#import pythoncom
+
 
 
 class BaseInfo():
-    def __init__(self):
-        self.w = wmi.WMI()
 
     def getWebServerInfoFromIIS6(self):
         webserver = {}
@@ -241,19 +241,29 @@ class BaseInfo():
         return network
 
     def getBaseInfo(self):
-        info={}
-        hardware = {}         
-        hardware["cpu"] = self.getCpus()
-        hardware["memory"] = self.getMemory()
-        hardware["disk"] = self.getDrives()
 
-        software = {}
-        software["os"] = self.getOs()
+        #pythoncom.CoInitialize()
 
-        info["machineid"] = str(uuid.getnode())
-        info["hardware"] = hardware
-        info["software"] = software
-        return info
+        try:
+            self.w = wmi.WMI()
+
+            info={}
+            hardware = {}         
+            hardware["cpu"] = self.getCpus()
+            hardware["memory"] = self.getMemory()
+            hardware["disk"] = self.getDrives()
+
+            software = {}
+            software["os"] = self.getOs()
+
+            info["machineid"] = str(uuid.getnode())
+            info["hardware"] = hardware
+            info["software"] = software
+            return info
+        finally:
+            #pythoncom.CoUninitialize()
+            pass
+
 
 if __name__ == '__main__':
     info = BaseInfo()
