@@ -50,18 +50,27 @@ class aservice(win32serviceutil.ServiceFramework):
         #
         #win32evtlogutil.ReportEvent(self._svc_name_,servicemanager.PYS_SERVICE_STARTED,0,servicemanager.EVENTLOG_INFORMATION_TYPE,(self._svc_name_, ''))
 
+        #self.ReportServiceStatus(win32service.SERVICE_RUNNING)
+
         # methode 1: wait for beeing stopped ...
         # win32event.WaitForSingleObject(self.hWaitStop,win32event.INFINITE)
 
         # methode 2: wait for beeing stopped ...
-        self.timeout=1000 * 60 * 5 # In milliseconds (update every second)
+        self.timeout=1000  # In milliseconds (update every second)
+        count = 0
 
         while self.isAlive:
 
+            #self.ReportServiceStatus(win32service.SERVICE_RUNNING)
+
+
             # wait for service stop signal, if timeout, loop again
             rc=win32event.WaitForSingleObject(self.hWaitStop, self.timeout)
+            count += 1
 
-            self.statservice.perform()
+            if count == 60 * 5:
+                self.statservice.perform()
+                count = 0
 
         # and write a 'stopped' event to the event log (not required)
         #
@@ -74,7 +83,7 @@ class aservice(win32serviceutil.ServiceFramework):
 if __name__ == '__main__':
 
     # if called without argvs, let's run !
-    print os.getcwd()
+    #print os.getcwd()
     if len(sys.argv) == 1:
         try:
             evtsrc_dll = os.path.abspath(servicemanager.__file__)
