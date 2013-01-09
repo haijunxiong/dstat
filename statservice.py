@@ -25,13 +25,13 @@ class statservice():
         try:
             pythoncom.CoInitialize()
 
-            datadir = os.path.join(os.getcwd(),'tstatdata')
+            datadir = os.path.join(os.getcwd(),'tmatrixdata')
             if not os.path.exists(datadir):
                 os.makedirs(datadir)
 
             #print datadir
 
-            baseinfofile = os.path.join(os.getcwd(),'tstatdata','baseinfo.json')
+            baseinfofile = os.path.join(os.getcwd(),'tmatrixdata','baseinfo.json')
             if not os.path.exists(baseinfofile):
                 info = baseinfo.BaseInfo()
                 baseinfos = json.dumps(info.getBaseInfo())
@@ -43,7 +43,7 @@ class statservice():
                     f.close()
 
             filename = time.strftime("%Y%m%d%H.json", time.localtime())
-            runninginfofile = os.path.join(os.getcwd(),'tstatdata',filename)
+            runninginfofile = os.path.join(os.getcwd(),'tmatrixdata',filename)
 
             counter = runninginfo_windows.dstat_counter()
             r = counter.extract()

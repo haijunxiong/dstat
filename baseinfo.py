@@ -3,12 +3,30 @@ Created on 2012-12-25
 
 @author: mengjia
 '''
-import wmi,subprocess,re,json,_winreg,uuid
+import wmi,subprocess,re,json,_winreg,uuid,time
 #import pythoncom
 
 
 
 class BaseInfo():
+    def __init__(self):
+        self.w = wmi.WMI()
+        self.AppKey = self.getAppKey()
+        
+
+    def getAppKey(self):
+        import _winreg
+        try:
+            HKEY_CLASSES_ROOT = 2147483648
+            path = 'AppID\{66313316-FECB-4A41-A335-2BB51624CB14}'
+
+            key = _winreg.OpenKey(HKEY_CLASSES_ROOT, path, 0, _winreg.KEY_ALL_ACCESS) 
+                            
+            value = _winreg.QueryValueEx(key, 'AppKey')
+
+            return str(value[0])    
+        except:
+            return ''
 
     def getWebServerInfoFromIIS6(self):
         webserver = {}
@@ -48,7 +66,7 @@ class BaseInfo():
             pass
 
         webserver["type"] = "iis"
-        webserver["version"] = 6
+        webserver["version"] = "6"
         webserver["sites"] = sites
 
         return webserver
@@ -91,7 +109,7 @@ class BaseInfo():
             pass            
 
         webserver["type"] = "iis"
-        webserver["version"] = 7
+        webserver["version"] = "7"
         webserver["sites"] = sites
         return webserver
 
@@ -131,24 +149,27 @@ class BaseInfo():
 
     def getInstalledSoftFromRegistry(self):
         softs = set()
-
+        HKEY_LOCAL_MACHINE  = 2147483650
         try:
             r = wmi.Registry ()
-            result, names = r.EnumKey (hDefKey=_winreg.HKEY_LOCAL_MACHINE, sSubKeyName=r"Software\Microsoft\Windows\CurrentVersion\Uninstall")
+            result, names = r.EnumKey (hDefKey=HKEY_LOCAL_MACHINE, sSubKeyName=r"Software\Microsoft\Windows\CurrentVersion\Uninstall")
 
             keyPath = r"Software\Microsoft\Windows\CurrentVersion\Uninstall"
          
             for subkey in names:
                 try:
                     path = keyPath + "\\" + subkey
-                    key = _winreg.OpenKey(_winreg.HKEY_LOCAL_MACHINE, path, 0, _winreg.KEY_ALL_ACCESS) 
+                    key = _winreg.OpenKey(HKEY_LOCAL_MACHINE, path, 0, _winreg.KEY_ALL_ACCESS) 
                     
-                    temp = _winreg.QueryValueEx(key, 'DisplayName')
-                    display = str(temp[0])
-                    if display == '' or display.lower().startswith('hotfix'):
-                        continue
+                    value = _winreg.QueryValueEx(key, 'DisplayName')
+                    
+                    if value:
+                        display = str(value[0])
+                        if display == '' or display.lower().startswith('hotfix'):
+                            continue
 
-                    softs.add(display)                
+                        softs.add(display)                
+
                 except:
                     pass
         except:
@@ -210,10 +231,10 @@ class BaseInfo():
         os["name"] = self.getOsName()
         os["partition"] = self.getPartition()
 
-        softs = self.getInstalledSoftFromWmi()
+        #softs = self.getInstalledSoftFromWmi()
 
-        if len(softs) <= 0:
-            softs = self.getInstalledSoftFromRegistry()
+        #if len(softs) <= 0:
+        softs = self.getInstalledSoftFromRegistry()
         
         os["soft"] = softs
 
@@ -245,9 +266,14 @@ class BaseInfo():
         #pythoncom.CoInitialize()
 
         try:
-            self.w = wmi.WMI()
+            
 
             info={}
+            info["infoid"] = str(uuid.uuid1())
+            info["machineid"] = str(uuid.getnode())
+            info["timestamp"] =  time.strftime("%Y%m%d%H%M%S", time.localtime())
+            info["appkey"] = self.AppKey
+
             hardware = {}         
             hardware["cpu"] = self.getCpus()
             hardware["memory"] = self.getMemory()

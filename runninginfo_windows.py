@@ -1,4 +1,4 @@
-import re,wmi,subprocess,uuid,time,json
+import re,uuid,time,json
 import win32pdh, win32pdhutil
 #import pythoncom
 
@@ -16,7 +16,22 @@ class dstat_counter(dstat):
         self.width = 12
         self.scale = 0
         self.val = {}
-        self.w = wmi.WMI()
+        self.AppKey = self.getAppKey()
+        
+
+    def getAppKey(self):
+        import _winreg
+        try:
+            HKEY_CLASSES_ROOT = 2147483648
+            path = 'AppID\{66313316-FECB-4A41-A335-2BB51624CB14}'
+
+            key = _winreg.OpenKey(HKEY_CLASSES_ROOT, path, 0, _winreg.KEY_ALL_ACCESS) 
+                            
+            value = _winreg.QueryValueEx(key, 'AppKey')
+
+            return str(value[0])    
+        except:
+            return ''
 
     def getProcess(self):
         import win32process,win32api,win32con,os
@@ -44,13 +59,11 @@ class dstat_counter(dstat):
                     p[str(pid)] = (ptimes['UserTime'],ptimes['KernelTime'],pagefile,workset,filename,executablePath)
                     
                     total += float(ptimes['UserTime'])  + float(ptimes['KernelTime'])
+
+                    handle.Close()
                     
                 except:
                     pass
-            
-
-            if handle:
-                handle.Close()
 
         p['total'] = total
         
@@ -58,13 +71,15 @@ class dstat_counter(dstat):
 
         #self.open('/proc/%s/schedstat' % ownpid)
     def getProcess2(self):
+        import wmi
+        w = wmi.WMI()
         p = {}
         p['total'] = 0
         total = 0
 
         try:
           
-            process = self.w.Win32_Process(['processid','KernelModeTime','Name','ExecutablePath','privatepagecount','usermodetime','workingsetsize'])
+            process = w.Win32_Process(['processid','KernelModeTime','Name','ExecutablePath','privatepagecount','usermodetime','workingsetsize'])
             for proc in process:
                 p[str(proc.ProcessId)] = (float(proc.UserModeTime),float(proc.KernelModeTime),float(proc.privatepagecount)/(1024*1024),float(proc.workingsetsize)/(1024*1024),proc.Name,proc.ExecutablePath)
                 total +=    float(proc.UserModeTime)  + float(proc.KernelModeTime)
@@ -73,13 +88,33 @@ class dstat_counter(dstat):
             pass
 
         return p
-    
+
     def getDiskSize(self):
+        import win32file
+        freespace = 0
+        disksize = 0
+
+        drives=[]
+        sign=win32file.GetLogicalDrives()
+        drive_all=["A:\\","B:\\","C:\\","D:\\","E:\\","F:\\","G:\\","H:\\","I:\\","J:\\","K:\\","L:\\","M:\\","N:\\","O:\\","P:\\","Q:\\","R:\\","S:\\","T:\\","U:\\","V:\\","W:\\","X:\\","Y:\\","Z:\\"]
+        for i in range(25):
+            if (sign & 1<<i):
+                if win32file.GetDriveType(drive_all[i]) == 3:
+                    space = win32file.GetDiskFreeSpace(drive_all[i])
+                    #print space
+                    freespace += space[0]*space[1]*space[2]
+                    disksize += space[0]*space[1]*space[3]
+
+        return (freespace,disksize)
+    
+    def getDiskSize2(self):
+        import wmi
+        w = wmi.WMI()
         freespace = 0
         disksize = 0
 
         try:
-            fixed_disks = self.w.Win32_LogicalDisk (DriveType=3)
+            fixed_disks = w.Win32_LogicalDisk (DriveType=3)
             for fdisk in fixed_disks:
                 freespace += float(fdisk.freespace)
                 disksize += float(fdisk.size)
@@ -154,7 +189,7 @@ class dstat_counter(dstat):
         win32pdh.CollectQueryData(base)
         set1 = self.getProcess()
 
-        #time.sleep(1)
+        time.sleep(0.5)
         win32pdh.CollectQueryData(base)
 
         queryData = {}
@@ -197,8 +232,8 @@ class dstat_counter(dstat):
         disk["iops"] = disk["rps"] + disk["wps"]
 
         
-        freespace,disksize = self.getDiskSize()        
-        
+        freespace,disksize = self.getDiskSize()
+        #print freespace,disksize
         if(disksize > 0):    
             disk["size"] = disksize/(1024*1024)
             disk["used"] = (disksize - freespace) / (1024*1024)
@@ -268,6 +303,8 @@ class dstat_counter(dstat):
         info["infoid"] = str(uuid.uuid1())
         info["machineid"] = str(uuid.getnode())
         info["timestamp"] =  time.strftime("%Y%m%d%H%M%S", time.localtime())
+        info["os"] = "windows"
+        info["appkey"] = self.AppKey
         info["cpu"] = cpu
         info["memory"] = memory
         info["disk"] = disk
@@ -281,7 +318,7 @@ class dstat_counter(dstat):
     def extractFromTypeperf(self):
 
         #pythoncom.CoInitialize()
-
+        import subprocess
         info = {}
 
         regexp = re.compile(r"\"(\d+\.\d+)\"")
@@ -419,6 +456,8 @@ class dstat_counter(dstat):
         info["infoid"] = str(uuid.uuid1())
         info["machineid"] = str(uuid.getnode())
         info["timestamp"] =  time.strftime("%Y%m%d%H%M%S", time.localtime())
+        info["os"] = "windows"
+        info["appkey"] = self.AppKey
         info["cpu"] = cpu
         info["memory"] = memory
         info["disk"] = disk
