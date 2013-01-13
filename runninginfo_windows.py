@@ -1,6 +1,9 @@
 import re,uuid,time,json
 import win32pdh, win32pdhutil
-#import pythoncom
+import win32process,win32api,win32con,os
+import ctypes,winappdbg,winappdbg.win32.kernel32
+import log
+
 
 class dstat:
     def __init__(self):
@@ -9,13 +12,8 @@ class dstat:
 class dstat_counter(dstat):
        
     def __init__(self):
-        self.name = 'perfcounter'
-        self.nick = ('info',)
-        self.vars = ('info',)
-        self.type = 'j'
-        self.width = 12
-        self.scale = 0
         self.val = {}
+        self.logger = log.log()
         self.AppKey = self.getAppKey()
         
 
@@ -25,52 +23,119 @@ class dstat_counter(dstat):
             HKEY_CLASSES_ROOT = 2147483648
             path = 'AppID\{66313316-FECB-4A41-A335-2BB51624CB14}'
 
-            key = _winreg.OpenKey(HKEY_CLASSES_ROOT, path, 0, _winreg.KEY_ALL_ACCESS) 
-                            
-            value = _winreg.QueryValueEx(key, 'AppKey')
-
-            return str(value[0])    
+            with _winreg.OpenKey(HKEY_CLASSES_ROOT, path, 0, _winreg.KEY_ALL_ACCESS) as key:                            
+                value = _winreg.QueryValueEx(key, 'AppKey')
+                return str(value[0])    
         except:
             return ''
 
-    def getProcess(self):
-        import win32process,win32api,win32con,os
+    def getSystemTimes(self):
+        FILETIME = winappdbg.win32.kernel32.FILETIME
+        LPFILETIME = winappdbg.win32.kernel32.LPFILETIME
 
-        p = {}
-        p['total'] = 0
-        total = 0
+        _GetSystemTime = ctypes.windll.kernel32.GetSystemTimes
+        _GetSystemTime.argtypes = [LPFILETIME, LPFILETIME,LPFILETIME]
+        _GetSystemTime.restype  = bool
+        #_GetSystemTime.errcheck = None
+        
+        IdleTime = FILETIME()
+        KernelTime = FILETIME()
+        UserTime = FILETIME()
 
 
-        procs = win32process.EnumProcesses()
-        for pid in procs:
-            try:
-                handle = win32api.OpenProcess(win32con.PROCESS_QUERY_INFORMATION|win32con.PROCESS_VM_READ, 0, pid)
+        _GetSystemTime(ctypes.byref(IdleTime),ctypes.byref(KernelTime),ctypes.byref(UserTime))
+        
+        IdleTime = IdleTime.dwHighDateTime << 32 | IdleTime.dwLowDateTime
+        KernelTime = KernelTime.dwHighDateTime << 32 | KernelTime.dwLowDateTime
+        UserTime = UserTime.dwHighDateTime << 32 | UserTime.dwLowDateTime
+                
+
+        return (IdleTime, KernelTime, UserTime)  
+    
+    def openProcess(self,pid):
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+        handle = None
+
+        try:
+            handle = win32api.OpenProcess(win32con.PROCESS_QUERY_INFORMATION|win32con.PROCESS_VM_READ, 0, pid)
+        except:
+            handle = None
+
+        if not handle:
+            try:  
+                handle = win32api.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)
             except:
                 handle = None
 
-            if handle:
-                try:
-                    executablePath = win32process.GetModuleFileNameEx(handle, 0)
-                    filename = os.path.basename(executablePath)
-                    ptimes = win32process.GetProcessTimes(handle)
-                    meminfo = win32process.GetProcessMemoryInfo(handle)
-                    pagefile = meminfo['PagefileUsage']/(1024*1024)
-                    workset = meminfo['WorkingSetSize']/(1024*1024)
-                    p[str(pid)] = (ptimes['UserTime'],ptimes['KernelTime'],pagefile,workset,filename,executablePath)
-                    
-                    total += float(ptimes['UserTime'])  + float(ptimes['KernelTime'])
+        return handle   
 
-                    handle.Close()
-                    
-                except:
-                    pass
-
-        p['total'] = total
+    def CloseHandle(self,handle):
         
+        try:
+            if handle:
+                win32api.CloseHandle(handle)    
+                
+                if hasattr(handle, 'close'):
+                    handle.close()    
+        except:
+            pass        
+        finally:
+            handle = None
+  
+    def getProcess(self):
+
+        p = {}
+
+        try:
+
+            systime = self.getSystemTimes()
+
+            p['total'] = systime[1] + systime[2]
+
+            procs = win32process.EnumProcesses()
+            for pid in procs:
+
+                if pid ==0: continue
+
+                handle = self.openProcess(pid)
+
+                if handle:
+                    try:
+                        try:
+                            executablePath = win32process.GetModuleFileNameEx(handle, 0)
+                        except:
+                            executablePath = None
+                        
+                        if not executablePath:
+                            winapp = winappdbg.Process(pid)
+                            executablePath = winapp.get_filename()
+
+                        filename = os.path.basename(executablePath)
+
+                        if filename.find('TMatrix') ==0 :
+                            continue
+
+                        ptimes = win32process.GetProcessTimes(handle)
+                        meminfo = win32process.GetProcessMemoryInfo(handle)
+                        pagefile = meminfo['PagefileUsage']/(1024*1024)
+                        workset = meminfo['WorkingSetSize']/(1024*1024)
+                        p[str(pid)] = (ptimes['UserTime'],ptimes['KernelTime'],pagefile,workset,filename,executablePath)
+                        
+                    except Exception as myException:
+                        self.logger.error(myException)
+                    finally:    
+                        self.CloseHandle(handle)
+
+        except Exception as  myException:
+            self.logger.error(myException)      
+        
+
         return p        
 
-        #self.open('/proc/%s/schedstat' % ownpid)
-    def getProcess2(self):
+
+    def getProcessFromWmi(self):
         import wmi
         w = wmi.WMI()
         p = {}
@@ -91,23 +156,30 @@ class dstat_counter(dstat):
 
     def getDiskSize(self):
         import win32file
-        freespace = 0
-        disksize = 0
 
-        drives=[]
-        sign=win32file.GetLogicalDrives()
-        drive_all=["A:\\","B:\\","C:\\","D:\\","E:\\","F:\\","G:\\","H:\\","I:\\","J:\\","K:\\","L:\\","M:\\","N:\\","O:\\","P:\\","Q:\\","R:\\","S:\\","T:\\","U:\\","V:\\","W:\\","X:\\","Y:\\","Z:\\"]
-        for i in range(25):
-            if (sign & 1<<i):
-                if win32file.GetDriveType(drive_all[i]) == 3:
-                    space = win32file.GetDiskFreeSpace(drive_all[i])
-                    #print space
-                    freespace += space[0]*space[1]*space[2]
-                    disksize += space[0]*space[1]*space[3]
+        try:
 
-        return (freespace,disksize)
-    
-    def getDiskSize2(self):
+            freespace = 0
+            disksize = 0
+
+            drives=[]
+            sign=win32file.GetLogicalDrives()
+            drive_all=["A:\\","B:\\","C:\\","D:\\","E:\\","F:\\","G:\\","H:\\","I:\\","J:\\","K:\\","L:\\","M:\\","N:\\","O:\\","P:\\","Q:\\","R:\\","S:\\","T:\\","U:\\","V:\\","W:\\","X:\\","Y:\\","Z:\\"]
+            for i in range(25):
+                if (sign & 1<<i):
+                    if win32file.GetDriveType(drive_all[i]) == 3:
+                        space = win32file.GetDiskFreeSpace(drive_all[i])
+                        #print space
+                        freespace += space[0]*space[1]*space[2]
+                        disksize += space[0]*space[1]*space[3]
+
+            return (freespace,disksize)
+        
+        except Exception as  myException:
+            self.logger.error(myException)   
+            return (0,0) 
+
+    def getDiskSizeFromWmi(self):
         import wmi
         w = wmi.WMI()
         freespace = 0
@@ -124,6 +196,11 @@ class dstat_counter(dstat):
         return (freespace,disksize)
 
     def extract(self):
+        def getQueryValue(data,key):
+            if key in data:
+                return data[key]
+            else:
+                return None
 
         paths = [   
                     ('cpu-total','Processor','_Total','% Processor Time'),
@@ -165,12 +242,8 @@ class dstat_counter(dstat):
 
         counters = {}
 
-        # open the query, and add the counter to the query
-        #print win32pdhutil.GetPerformanceAttributes("Process(_Total)","% ProcessorTime")
         base = win32pdh.OpenQuery()
         #print base
-
-        #elements : (machineName, objectName, instanceName, parentInstance, instanceIndex, counterName)
 
         for path in paths:
             counterPath = win32pdh.MakeCounterPath( (None,path[1],path[2], None, -1, path[3]) ) 
@@ -183,20 +256,18 @@ class dstat_counter(dstat):
             #else:
                 #print path[0], '------path is not valid'
 
-        #print counter
         # collect the data for the query object. We need to collect the query data
         # twice to be able to calculate the % Processor Time 
         win32pdh.CollectQueryData(base)
         set1 = self.getProcess()
 
-        time.sleep(0.5)
+        time.sleep(1)
         win32pdh.CollectQueryData(base)
 
         queryData = {}
         nibps = 0
 
         # Get the formatted value of the counter
-        #print "Uso de procesador al",  (win32pdh.GetFormattedCounterValue(counter,win32pdh.PDH_FMT_LONG)[1]), "%" 
         for key in counters.keys():
             if key.find('ni-bps') == 0:
                 nibps += win32pdh.GetFormattedCounterValue(counters[key],win32pdh.PDH_FMT_LONG)[1]
@@ -210,25 +281,25 @@ class dstat_counter(dstat):
         info = {}
 
         cpu = {}
-        cpu["us"] = queryData["cpu-us"]
-        cpu["sy"] = queryData["cpu-sy"]
+        cpu["us"] = getQueryValue(queryData,"cpu-us")
+        cpu["sy"] = getQueryValue(queryData,"cpu-sy")
         
-        cpu["id"] = 100 - float(queryData["cpu-total"])
-        cpu["r"] = queryData["cpu-r"]
+        cpu["id"] = 100 - float(getQueryValue(queryData,"cpu-total"))
+        cpu["r"] = getQueryValue(queryData,"cpu-r")
 
         memory = {}
-        memory["free"] = queryData["mem-free"]
-        memory["pages-ps"] = queryData["mem-pages-ps"]
+        memory["free"] = getQueryValue(queryData,"mem-free")
+        memory["pages-ps"] = getQueryValue(queryData,"mem-pages-ps")
 
         disk = {}
-        disk["readtime"] = queryData["disk-readtime"]
-        disk["writetime"] = queryData["disk-writetime"]
-        disk["queue"] = queryData["disk-queue"]
-        disk["rbps"] = queryData["disk-rbps"]
-        disk["wbps"] = queryData["disk-wbps"]
+        disk["readtime"] = getQueryValue(queryData,"disk-readtime")
+        disk["writetime"] = getQueryValue(queryData,"disk-writetime")
+        disk["queue"] = getQueryValue(queryData,"disk-queue")
+        disk["rbps"] = getQueryValue(queryData,"disk-rbps")
+        disk["wbps"] = getQueryValue(queryData,"disk-wbps")
         disk["bps"] = disk["rbps"] + disk["wbps"]
-        disk["rps"] = queryData["disk-rps"]
-        disk["wps"] = queryData["disk-wps"]
+        disk["rps"] = getQueryValue(queryData,"disk-rps")
+        disk["wps"] = getQueryValue(queryData,"disk-wps")
         disk["iops"] = disk["rps"] + disk["wps"]
 
         
@@ -243,15 +314,15 @@ class dstat_counter(dstat):
             database = {}
             sqlserver = {}
 
-            sqlserver["qps"] = queryData["sql-qps"]
-            sqlserver["tps"] = queryData["sql-tps"]
-            sqlserver["connections"] = queryData["sql-connections"]
-            sqlserver["fullscans"] = queryData["sql-fullscans"]
-            sqlserver["targetmemory"] = queryData["sql-targetmemory"]
-            sqlserver["totalmemory"] = queryData["sql-totalmemory"]
-            sqlserver["dataspace"] = queryData["sql-dataspace"]
-            sqlserver["logspace"] = queryData["sql-logspace"]
-            sqlserver["cachehitratio"] = queryData["sql-cachehitratio"]
+            sqlserver["qps"] = getQueryValue(queryData,"sql-qps")
+            sqlserver["tps"] = getQueryValue(queryData,"sql-tps")
+            sqlserver["connections"] = getQueryValue(queryData,"sql-connections")
+            sqlserver["fullscans"] = getQueryValue(queryData,"sql-fullscans")
+            sqlserver["targetmemory"] = getQueryValue(queryData,"sql-targetmemory")
+            sqlserver["totalmemory"] = getQueryValue(queryData,"sql-totalmemory")
+            sqlserver["dataspace"] = getQueryValue(queryData,"sql-dataspace")
+            sqlserver["logspace"] = getQueryValue(queryData,"sql-logspace")
+            sqlserver["cachehitratio"] = getQueryValue(queryData,"sql-cachehitratio")
            
             database["sqlserver"] = sqlserver
 
@@ -263,9 +334,9 @@ class dstat_counter(dstat):
 
         
         if("ws-bps" in queryData):
-            iis["bps"] = queryData["ws-bps"]
-            iis["rps"] = queryData["ws-rps"]
-            iis["connections"] = queryData["ws-connections"]
+            iis["bps"] = getQueryValue(queryData,"ws-bps")
+            iis["rps"] = getQueryValue(queryData,"ws-rps")
+            iis["connections"] = getQueryValue(queryData,"ws-connections")
         #iis["requestqueued"] = float(result[col+3]) #+  float(result[col+4])
     
 
@@ -273,7 +344,7 @@ class dstat_counter(dstat):
         info["webserver"] = webserver
 
         network = {}
-        network["bps"] = queryData["ni-bps"]
+        network["bps"] = getQueryValue(queryData,"ni-bps")
 
         process = []
 
@@ -282,20 +353,30 @@ class dstat_counter(dstat):
         set2 = self.getProcess()
         
 
+        #self.logger.debug(set1)
+        #self.logger.debug(set2)
+        
         totaltime = set2['total'] - set1['total']
 
+        
         for s in set1:
             if s == 'total' :  continue
-            if(set2.has_key(s)):        
+            
+            if(set2.has_key(s)):
                 proc = {}
                 proc["pid"] = s
-                proc["cpu"] = (sum(set2[s][0:2]) - sum(set1[s][0:2]) )* 100 / totaltime
+
+                if totaltime > 0:
+                    proc["cpu"] = (sum(set2[s][0:2]) - sum(set1[s][0:2]) )* 100 / totaltime
+                else:
+                    proc["cpu"] = 0   
+
                 proc["mem"] = set2[s][2]
                 proc["mem2"] = set2[s][3]
                 proc["name"] = set2[s][4]
                 proc["command"] = set2[s][5]
                 process.append(proc)
-        
+            
         process = sorted(process, key=lambda d: d["cpu"])
         if len(process) > 10:
             process = process[-11:]
@@ -315,163 +396,21 @@ class dstat_counter(dstat):
         #pythoncom.CoUninitialize()
         return self.val
 
-    def extractFromTypeperf(self):
-
-        #pythoncom.CoInitialize()
-        import subprocess
-        info = {}
-
-        regexp = re.compile(r"\"(\d+\.\d+)\"")
-        r = subprocess.check_output(['typeperf','-sc','1',
-                                     '\Processor(_Total)\% Privileged Time',
-                                     '\Processor(_Total)\% User Time',
-                                     '\Processor(_Total)\% Processor Time',
-                                     '\System\Processor Queue Length',
-                                     '\Memory\Available Mbytes',
-                                     '\Memory\Pages/sec',
-                                     '\PhysicalDisk(_Total)\% Disk Read Time',
-                                     '\PhysicalDisk(_Total)\% Disk Write Time',
-                                     '\PhysicalDisk(_Total)\Current Disk Queue Length',
-                                     '\PhysicalDisk(_Total)\Disk Read Bytes/sec',
-                                     '\PhysicalDisk(_Total)\Disk Write Bytes/sec',
-                                     '\PhysicalDisk(_Total)\Disk Reads/sec',
-                                     '\PhysicalDisk(_Total)\Disk Writes/sec',                                     
-                                     'SQLServer:SQL Statistics\Batch Requests/sec',
-                                     'SQLServer:Databases(_Total)\Transactions/sec',
-                                     'SQLServer:General Statistics\User Connections',
-                                     'SQLServer:Access Methods\Full Scans/sec',
-                                     'SQLServer:Memory Manager\Target Server Memory (KB)',
-                                     'SQLServer:Memory Manager\Total Server Memory (KB)',                                     
-                                     'SQLServer:Databases(_Total)\Data File(s) Size (KB)',
-                                     'SQLServer:Databases(_Total)\Log File(s) Size (KB)',
-                                     'SQLServer:Buffer Manager\Buffer cache hit ratio',
-                                     'Web Service(_Total)\Bytes Total/sec',
-                                     'Web Service(_Total)\Total Method Requests/sec',
-                                     'Web Service(_Total)\Current Connections',
-                                     #'Active Server Pages\Requests Queued',
-                                     #'ASP.NET\Requests Queued',
-                                     '\Network Interface(*)\Bytes Total/sec'                                     
-                                     ],stdin=subprocess.PIPE,stderr=subprocess.PIPE,shell=True)
-        result = regexp.findall(r)    
-
-        i=0
-
-        cpu = {}
-        cpu["us"] = float(result[i]); i += 1
-        cpu["sy"] = float(result[i]); i += 1
-        
-        cpu["id"] = 100-float(result[i]); i += 1
-        cpu["r"] = float(result[i]); i += 1
-
-        memory = {}
-        memory["free"] = float(result[i]); i += 1
-        memory["pages-ps"] = float(result[i]); i += 1
-
-        disk = {}
-        disk["readtime"] = float(result[i]); i += 1
-        disk["writetime"] = float(result[i]); i += 1
-        disk["queue"] = float(result[i]); i += 1
-        disk["rbps"] = float(result[i]); i += 1
-        disk["wbps"] = float(result[i]); i += 1
-        disk["bps"] = disk["rbps"] + disk["wbps"]
-        disk["rps"] = float(result[i]); i += 1
-        disk["wps"] = float(result[i]); i += 1
-        disk["iops"] = disk["rps"] + disk["wps"]
-
-        
-        freespace,disksize = self.getDiskSize()        
-        
-        if(disksize > 0):    
-            disk["size"] = disksize/(1024*1024)
-            disk["used"] = (disksize - freespace) / (1024*1024)
-            disk["use"] = disk["used"] * 100 / disk["size"]
-        
-        if(r.find("SQLServer") > 0):
-            database = {}
-            sqlserver = {}
-
-            sqlserver["qps"] = float(result[i]); i += 1
-            sqlserver["tps"] = float(result[i]); i += 1
-            sqlserver["connections"] = float(result[i]); i += 1
-            sqlserver["fullscans"] = float(result[i]); i += 1
-            sqlserver["targetmemory"] = float(result[i]) / 1024; i += 1
-            sqlserver["totalmemory"] = float(result[i]) / 1024; i += 1
-            sqlserver["dataspace"] = float(result[i]) / 1024; i += 1
-            sqlserver["logspace"] = float(result[i]) / 1024; i += 1
-            sqlserver["cachehitratio"] = float(result[i]); i += 1
-           
-            database["sqlserver"] = sqlserver
-
-            info["database"] = database
-
-
-        webserver =  {}
-        iis = {}
-
-        
-        if(r.find("Web Service") > 0):
-            iis["bps"] = float(result[i]); i += 1
-            iis["rps"] = float(result[i]); i += 1
-            iis["connections"] = float(result[i]); i += 1
-        #iis["requestqueued"] = float(result[col+3]) #+  float(result[col+4])
-    
-
-        webserver['iis'] = iis
-        info["webserver"] = webserver
-
-        network = {}
-        bps = 0
-        for item in result[i:]:
-            bps += float(item)    
-            i += 1
-
-        network["bps"] = bps
-
-        process = []
-
-        '''
-        set1 = self.getProcess()
-        set2 = self.getProcess()
-        
-
-        totaltime = set2['total'] - set1['total']
-
-        for s in set1:
-            if s == 'total' :  continue
-            if(set2.has_key(s)):        
-                proc = {}
-                proc["pid"] = s
-                proc["cpu"] = (sum(set2[s][0:2]) - sum(set1[s][0:2]) )* 100 / totaltime
-                proc["mem"] = set2[s][2]
-                proc["mem2"] = set2[s][3]
-                proc["name"] = set2[s][4]
-                proc["command"] = set2[s][5]
-                process.append(proc)
-        
-        process = sorted(process, key=lambda d: d["cpu"])
-        if len(process) > 10:
-            process = process[-11:]
-        '''
-            
-        info["infoid"] = str(uuid.uuid1())
-        info["machineid"] = str(uuid.getnode())
-        info["timestamp"] =  time.strftime("%Y%m%d%H%M%S", time.localtime())
-        info["os"] = "windows"
-        info["appkey"] = self.AppKey
-        info["cpu"] = cpu
-        info["memory"] = memory
-        info["disk"] = disk
-        info["network"] = network
-        info["process"] = process
-
-        self.val["info"] = info
-        #pythoncom.CoUninitialize()
-        return self.val
 #end dstat_wincounter
 
 
 
 if __name__ == '__main__':
+    
+    import win32security, ntsecuritycon, win32con, win32api
+    privs = ((win32security.LookupPrivilegeValue('',ntsecuritycon.SE_DEBUG_NAME), win32con.SE_PRIVILEGE_ENABLED),)
+
+    hToken = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32security.TOKEN_ALL_ACCESS)
+    win32security.AdjustTokenPrivileges(hToken, False, privs)
+    win32api.CloseHandle(hToken)
+
+    #print win32api.GetCurrentProcess()
+    #print ntsecuritycon.SE_DEBUG_NAME
     counter = dstat_counter()
     r = counter.extract()
     print json.dumps(r)

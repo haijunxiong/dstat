@@ -1,6 +1,6 @@
 import sched,time,os,json,codecs
 import pythoncom
-import baseinfo,runninginfo_windows
+import baseinfo,runninginfo_windows,log,traceback
 
 
 class statservice():
@@ -18,8 +18,29 @@ class statservice():
             scheduler.enterabs(self.inittime + self.update, 1, self.perform, ())
             scheduler.run()
      
-            self.update += self.interval                        
-        
+            self.update += self.interval           
+    
+    def removefile(self,targetdir):
+        import glob
+
+        try:
+            timefile=  time.strftime("%Y%m%d", time.localtime())
+
+            for file in glob.glob(os.path.join(targetdir,'20[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].json')):
+                filename = os.path.basename(file)
+                #print filename
+                
+                timefile=int(timefile)-3
+                #print filename[0:8]
+                
+                removefile=int(filename[0:8])
+                if (removefile<timefile):
+                    os.remove(file)
+        except Exception as myexce:
+            #print myexce
+            #raise myexce
+            pass
+                
     def perform(self):
         #print "perform",self.update
         try:
@@ -29,6 +50,7 @@ class statservice():
             if not os.path.exists(datadir):
                 os.makedirs(datadir)
 
+            self.removefile(datadir)    
             #print datadir
 
             baseinfofile = os.path.join(os.getcwd(),'tmatrixdata','baseinfo.json')
@@ -55,8 +77,23 @@ class statservice():
                 f.write('\r\n')
             finally:
                 f.close()
+            
+
+        except Exception as myexception:
+            try:
+                logger = log.log()
+                logger.error(myexception)
+
+            except:
+                pass
+
+            raise myexception
+                
+        else:
+            pass            
         finally:
             pythoncom.CoUninitialize()
+            #pass
                     
 if __name__ == '__main__':
     service = statservice()
